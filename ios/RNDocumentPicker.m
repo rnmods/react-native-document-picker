@@ -1,6 +1,8 @@
 #import "RNDocumentPicker.h"
 
+#if __has_include(<UIKit/UIKit.h>)
 #import <MobileCoreServices/MobileCoreServices.h>
+#endif
 
 #import <React/RCTConvert.h>
 #import <React/RCTBridge.h>
@@ -22,11 +24,19 @@ static NSString *const FIELD_TYPE = @"type";
 static NSString *const FIELD_SIZE = @"size";
 
 
+#if __has_include(<UIKit/UIKit.h>)
 @interface RNDocumentPicker () <UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate>
 @end
+#else
+@interface RNDocumentPicker ()
+@end
+
+#endif
 
 @implementation RNDocumentPicker {
+#if __has_include(<UIKit/UIKit.h>)
     UIDocumentPickerMode mode;
+#endif
     NSString *copyDestination;
     RNCPromiseWrapper* promiseWrapper;
     NSMutableArray *urlsInOpenMode;
@@ -66,53 +76,59 @@ RCT_EXPORT_METHOD(pick:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    mode = options[@"mode"] && [options[@"mode"] isEqualToString:@"open"] ? UIDocumentPickerModeOpen : UIDocumentPickerModeImport;
+    
     copyDestination = options[@"copyTo"];
-    UIModalPresentationStyle presentationStyle = [RCTConvert UIModalPresentationStyle:options[@"presentationStyle"]];
-    UIModalTransitionStyle transitionStyle = [RCTConvert UIModalTransitionStyle:options[@"transitionStyle"]];
-    [promiseWrapper setPromiseWithInProgressCheck:resolve rejecter:reject fromCallSite:@"pick"];
-
     NSArray *allowedUTIs = [RCTConvert NSArray:options[OPTION_TYPE]];
-    UIDocumentPickerViewController *documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:allowedUTIs inMode:mode];
 
-    documentPicker.modalPresentationStyle = presentationStyle;
-    documentPicker.modalTransitionStyle = transitionStyle;
+    #if __has_include(<UIKit/UIKit.h>)
+        mode = options[@"mode"] && [options[@"mode"] isEqualToString:@"open"] ? UIDocumentPickerModeOpen : UIDocumentPickerModeImport;
+        UIModalPresentationStyle presentationStyle = [RCTConvert UIModalPresentationStyle:options[@"presentationStyle"]];
+        UIModalTransitionStyle transitionStyle = [RCTConvert UIModalTransitionStyle:options[@"transitionStyle"]];
+        [promiseWrapper setPromiseWithInProgressCheck:resolve rejecter:reject fromCallSite:@"pick"];
 
-    documentPicker.delegate = self;
-    documentPicker.presentationController.delegate = self;
+        UIDocumentPickerViewController *documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:allowedUTIs inMode:mode];
 
-    documentPicker.allowsMultipleSelection = [RCTConvert BOOL:options[OPTION_MULTIPLE]];
+        documentPicker.modalPresentationStyle = presentationStyle;
+        documentPicker.modalTransitionStyle = transitionStyle;
 
-    UIViewController *rootViewController = RCTPresentedViewController();
+        documentPicker.delegate = self;
+        documentPicker.presentationController.delegate = self;
 
-    [rootViewController presentViewController:documentPicker animated:YES completion:nil];
-}
+        UIViewController *rootViewController = RCTPresentedViewController();
 
+        [rootViewController presentViewController:documentPicker animated:YES completion:nil];
+    #else
+        [promiseWrapper setPromiseWithInProgressCheck:resolve rejecter:reject fromCallSite:@"pick"];
+        NSOpenPanel *op = [NSOpenPanel openPanel];
+        op.canChooseFiles = YES;
+        op.canChooseDirectories = YES;
+        op.allowsMultipleSelection = [RCTConvert BOOL:options[OPTION_MULTIPLE]];
+        [op runModal];
 
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
-{
-    NSMutableArray *results = [NSMutableArray array];
-    for (id url in urls) {
-        NSError *error;
-        NSMutableDictionary *result = [self getMetadataForUrl:url error:&error];
-        if (result) {
-            [results addObject:result];
-        } else {
-            [promiseWrapper reject:E_INVALID_DATA_RETURNED withError:error];
-            return;
+        NSMutableArray *results = [NSMutableArray array];
+        for (id url in op.URLs) {
+            NSError *error;
+            NSMutableDictionary *result = [self getMetadataForUrl:url error:&error];
+            if (result) {
+                [results addObject:result];
+            } else {
+                [promiseWrapper reject:E_INVALID_DATA_RETURNED withError:error];
+                return;
+            }
         }
-    }
-
-    [promiseWrapper resolve:results];
+        [promiseWrapper resolve:results];
+    #endif
 }
 
 - (NSMutableDictionary *)getMetadataForUrl:(NSURL *)url error:(NSError **)error
 {
     __block NSMutableDictionary *result = [NSMutableDictionary dictionary];
 
-    if (mode == UIDocumentPickerModeOpen) {
-        [urlsInOpenMode addObject:url];
-    }
+#if __has_include(<UIKit/UIKit.h>)
+        if (mode == UIDocumentPickerModeOpen) {
+            [urlsInOpenMode addObject:url];
+        }
+#endif
     
     // TODO handle error
     [url startAccessingSecurityScopedResource];
@@ -123,8 +139,8 @@ RCT_EXPORT_METHOD(pick:(NSDictionary *)options
     // TODO double check this implemenation, see eg. https://developer.apple.com/documentation/foundation/nsfilecoordinator/1412420-prepareforreadingitemsaturls
     [coordinator coordinateReadingItemAtURL:url options:NSFileCoordinatorReadingResolvesSymbolicLink error:&fileError byAccessor:^(NSURL *newURL) {
         // If the coordinated operation fails, then the accessor block never runs
-        result[FIELD_URI] = ((mode == UIDocumentPickerModeOpen) ? url : newURL).absoluteString;
         
+        result[FIELD_URI] = url.absoluteString;
         NSError *copyError;
         NSString *maybeFileCopyPath = copyDestination ? [RNDocumentPicker copyToUniqueDestinationFrom:newURL usingDestinationPreset:copyDestination error:copyError].absoluteString : nil;
         
@@ -134,7 +150,7 @@ RCT_EXPORT_METHOD(pick:(NSDictionary *)options
             result[FIELD_COPY_ERR] = copyError.localizedDescription;
             result[FIELD_FILE_COPY_URI] = [NSNull null];
         }
-
+      
         result[FIELD_NAME] = newURL.lastPathComponent;
 
         NSError *attributesError = nil;
@@ -160,10 +176,12 @@ RCT_EXPORT_METHOD(pick:(NSDictionary *)options
             result[FIELD_TYPE] = [NSNull null];
         }
     }];
-
-    if (mode != UIDocumentPickerModeOpen) {
-        [url stopAccessingSecurityScopedResource];
-    }
+    
+#if __has_include(<UIKit/UIKit.h>)
+        if (mode != UIDocumentPickerModeOpen) {
+            [url stopAccessingSecurityScopedResource];
+        }
+#endif
 
     if (fileError) {
         *error = fileError;
@@ -172,6 +190,26 @@ RCT_EXPORT_METHOD(pick:(NSDictionary *)options
         return result;
     }
 }
+
+#if __has_include(<UIKit/UIKit.h>)
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
+{
+    NSMutableArray *results = [NSMutableArray array];
+    for (id url in urls) {
+        NSError *error;
+        NSMutableDictionary *result = [self getMetadataForUrl:url error:&error];
+        if (result) {
+            [results addObject:result];
+        } else {
+            [promiseWrapper reject:E_INVALID_DATA_RETURNED withError:error];
+            return;
+        }
+    }
+
+    [promiseWrapper resolve:results];
+}
+#endif
+
 
 RCT_EXPORT_METHOD(releaseSecureAccess:(NSArray<NSString *> *)uris
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -222,6 +260,7 @@ RCT_EXPORT_METHOD(releaseSecureAccess:(NSArray<NSString *> *)uris
     return [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
 }
 
+#if __has_include(<UIKit/UIKit.h>)
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
 {
     [self rejectAsUserCancellationError];
@@ -231,6 +270,7 @@ RCT_EXPORT_METHOD(releaseSecureAccess:(NSArray<NSString *> *)uris
 {
     [self rejectAsUserCancellationError];
 }
+#endif
 
 - (void)rejectAsUserCancellationError
 {
@@ -240,3 +280,4 @@ RCT_EXPORT_METHOD(releaseSecureAccess:(NSArray<NSString *> *)uris
 }
 
 @end
+

@@ -6,7 +6,8 @@ If you want to ask questions, we opened [GH discussions](https://github.com/rnmo
 
 A React Native wrapper for:
 
-- Apple's `UIDocumentPickerViewController`
+- iOS `UIDocumentPickerViewController`
+- OSX `NSOpenPanel`
 - Android's `Intent.ACTION_GET_CONTENT`
 - Windows `Windows.Storage.Pickers`
 
@@ -18,7 +19,7 @@ A React Native wrapper for:
   </tr>
 </table>
 
-Requires RN >= 0.63, Android 5.0+ and iOS 11+
+Requires RN >= 0.63, Android 5.0+, iOS 11+ and OSX 10.5
 
 # Table of Contents
 
